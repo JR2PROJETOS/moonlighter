@@ -12,8 +12,8 @@ from moonlighter.core.parsing import parse_llm_json, wrap_untrusted
 logger = get_logger(__name__)
 
 # Profile fields that matter for SCORING a job. Contact/credentials
-# (name/phone/email/linkedin) and education/publications don't influence the score
-# and only bloat the prompt — left out.
+# (name/phone/email/linkedin) and publications are left out. Location and
+# education are needed for regional eligibility and required qualifications.
 _EVAL_PROFILE_KEYS = (
     "criteria",
     "skills",
@@ -22,6 +22,8 @@ _EVAL_PROFILE_KEYS = (
     "preferences",
     "languages",
     "experience",
+    "location",
+    "education",
 )
 
 
@@ -45,22 +47,27 @@ def should_skip_by_title(title: str, blocklist: list[str]) -> str | None:
 
 # Static prefix of the individual evaluation prompt: profile + filters + instructions.
 # Sent as cache_prefix so the API backend can cache it across calls.
-EVAL_PREFIX = """You are evaluating a job posting for a senior software engineer.
+EVAL_PREFIX = """You are evaluating a job posting for the candidate described in the Candidate Profile, sourced from profile.yaml.
+Infer profession, professional background and seniority exclusively from that profile.
+Do not assume a default profession or industry, or infer the candidate's qualifications
+from the job posting. If the profile does not establish a fact, treat it as unknown.
 
 ## Candidate Profile
 {profile_yaml}
 
 ## Hard filters (MANDATORY)
 The candidate's profile contains `criteria.hard_filters`. These are non-negotiable dealbreakers.
-If ANY hard filter is triggered by the job posting, the score MUST be ≤ 2.0, regardless of stack match or other positives.
+If ANY hard filter is triggered by the job posting, the score MUST be ≤ 2.0, regardless of match with documented skills and experience or other positives.
 List the violated filter(s) in `caveats`.
 
 ## Regional eligibility
-The candidate works from Belo Horizonte, Brazil. A posting is eligible only when it is remote with
-coverage that includes Brazil (Brazil/LATAM/Americas/global/worldwide), or on-site/hybrid in Belo
-Horizonte itself. When a Location line names another country, region or city and neither it nor the
-description grants such coverage, that is a triggered hard filter — do not reinterpret the stated
-location as an inconsistency to discount; score it ≤ 2.0 and record the reason in `caveats`.
+Use only the profile's location, preferences and criteria to assess regional fit against
+both the posting's structured location and its description. Do not assume a home city,
+country, remote-work requirement, work authorization or willingness to relocate.
+Consider stated relocation preferences; remote coverage and legal work authorization are
+separate questions. Missing or ambiguous information is unknown, not proof of eligibility
+or ineligibility: record the uncertainty in `caveats`. Apply the hard-filter score cap only
+when the posting triggers an explicit `criteria.hard_filters` entry.
 
 ## Mandatory requirements
 When the posting marks a requirement as mandatory/required/must-have/non-negotiable and the
@@ -73,17 +80,17 @@ because the surrounding text emphasizes different skills. List every unmet manda
 cap the score at 2.0 for unmet mandatory requirements alone (only `criteria.hard_filters` do that).
 
 ## Engagement type
-The candidate targets permanent full-time positions. When the posting is contract-based, freelance,
-fixed-term, or hourly-gig work (including "Contract" or "Freelance" in the title), discount the
-score: these postings stay in the queue but must rank below comparable permanent roles. This is a
-discount, NOT a hard filter — never cap the score at 2.0 for engagement type alone. Record the
-finding in `caveats`, prefixed "contract-based:".
+Use the profile's stated preferences and criteria for permanent, contract, freelance,
+fixed-term, part-time or hourly work. There is no default preference for any engagement type.
+If none is stated, do not reward or penalize a posting for its engagement type alone.
+Treat soft preferences as ranking guidance; only explicit `criteria.hard_filters` can
+trigger the hard-filter score cap. Explain any profile-based mismatch in `caveats`.
 
 ## Instructions
 Return a JSON object with ONLY these keys (no markdown, no explanation):
 - score: float 0.0-10.0 (10 = perfect match for this candidate)
 - score_notes: string, 2-3 sentences explaining the score
-- caveats: list of strings — blockers/warnings found in the JD (e.g. "US citizens only", "requires relocation", "requires .NET")
+- caveats: list of strings — blockers/warnings found in the JD (e.g. "US citizens only", "requires relocation", "requires a qualification not documented in the profile")
 - salary_min: integer or null
 - salary_max: integer or null
 - salary_currency: string or null (default "USD" if inferring)
@@ -257,22 +264,27 @@ def _parse_batch(raw: str, n: int) -> list[EvaluationResult] | None:
 
 # Static prefix of the batch prompt: profile + filters + instructions.
 # Doesn't include the job blocks — those go in the dynamic suffix, outside the cache.
-EVAL_BATCH_PREFIX = """You are evaluating job postings for a senior software engineer.
+EVAL_BATCH_PREFIX = """You are evaluating job postings for the candidate described in the Candidate Profile, sourced from profile.yaml.
+Infer profession, professional background and seniority exclusively from that profile.
+Do not assume a default profession or industry, or infer the candidate's qualifications
+from the job posting. If the profile does not establish a fact, treat it as unknown.
 
 ## Candidate Profile
 {profile_yaml}
 
 ## Hard filters (MANDATORY)
 The candidate's profile contains `criteria.hard_filters`. These are non-negotiable dealbreakers.
-If ANY hard filter is triggered by a posting, that posting's score MUST be ≤ 2.0, regardless of stack match.
+If ANY hard filter is triggered by a posting, that posting's score MUST be ≤ 2.0, regardless of match with documented skills and experience.
 List the violated filter(s) in `caveats`.
 
 ## Regional eligibility
-The candidate works from Belo Horizonte, Brazil. A posting is eligible only when it is remote with
-coverage that includes Brazil (Brazil/LATAM/Americas/global/worldwide), or on-site/hybrid in Belo
-Horizonte itself. When a Location line names another country, region or city and neither it nor the
-description grants such coverage, that is a triggered hard filter — do not reinterpret the stated
-location as an inconsistency to discount; score it ≤ 2.0 and record the reason in `caveats`.
+Use only the profile's location, preferences and criteria to assess regional fit against
+both the posting's structured location and its description. Do not assume a home city,
+country, remote-work requirement, work authorization or willingness to relocate.
+Consider stated relocation preferences; remote coverage and legal work authorization are
+separate questions. Missing or ambiguous information is unknown, not proof of eligibility
+or ineligibility: record the uncertainty in `caveats`. Apply the hard-filter score cap only
+when the posting triggers an explicit `criteria.hard_filters` entry.
 
 ## Mandatory requirements
 When the posting marks a requirement as mandatory/required/must-have/non-negotiable and the
@@ -285,11 +297,11 @@ because the surrounding text emphasizes different skills. List every unmet manda
 cap the score at 2.0 for unmet mandatory requirements alone (only `criteria.hard_filters` do that).
 
 ## Engagement type
-The candidate targets permanent full-time positions. When the posting is contract-based, freelance,
-fixed-term, or hourly-gig work (including "Contract" or "Freelance" in the title), discount the
-score: these postings stay in the queue but must rank below comparable permanent roles. This is a
-discount, NOT a hard filter — never cap the score at 2.0 for engagement type alone. Record the
-finding in `caveats`, prefixed "contract-based:".
+Use the profile's stated preferences and criteria for permanent, contract, freelance,
+fixed-term, part-time or hourly work. There is no default preference for any engagement type.
+If none is stated, do not reward or penalize a posting for its engagement type alone.
+Treat soft preferences as ranking guidance; only explicit `criteria.hard_filters` can
+trigger the hard-filter score cap. Explain any profile-based mismatch in `caveats`.
 
 ## Job postings
 You will be given {n} job postings, numbered and delimited, after these instructions. Evaluate EACH independently.

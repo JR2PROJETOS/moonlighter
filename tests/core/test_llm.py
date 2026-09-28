@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -125,9 +126,12 @@ def test_cli_workdir_created_with_0700(tmp_path, monkeypatch):
     monkeypatch.setenv("MOONLIGHTER_HOME", str(tmp_path))
     from moonlighter.core.llm import _cli_workdir
 
-    workdir = _cli_workdir()
+    with patch.object(Path, "chmod", autospec=True, side_effect=Path.chmod) as chmod:
+        workdir = _cli_workdir()
+    chmod.assert_called_once_with(workdir, 0o700)
     assert workdir.exists()
-    assert oct(workdir.stat().st_mode)[-3:] == "700"
+    if os.name == "posix":
+        assert oct(workdir.stat().st_mode)[-3:] == "700"
 
 
 def test_cli_workdir_is_idempotent(tmp_path, monkeypatch):
@@ -204,10 +208,11 @@ async def test_call_cli_empty_prompt_still_calls_subprocess():
     assert mock_proc.communicate.call_args.kwargs["input"] == b""
 
 
-async def test_cli_launch_invariants():
+async def test_cli_launch_invariants(tmp_path):
     """Ruff's S (flake8-bandit) rules do not analyze asyncio.create_subprocess_exec, so the
     lint gate is blind to this call. This test is the gate instead: it locks the properties
     the S rules would have enforced if they understood the API."""
+    executable = str(tmp_path / "claude")
     mock_proc = MagicMock()
     mock_proc.communicate = AsyncMock(return_value=(b"answer", b""))
     mock_proc.returncode = 0
@@ -216,14 +221,14 @@ async def test_cli_launch_invariants():
         patch(
             "moonlighter.core.llm.asyncio.create_subprocess_exec", return_value=mock_proc
         ) as mock_exec,
-        patch("moonlighter.core.llm.shutil.which", return_value="/usr/local/bin/claude"),
+        patch("moonlighter.core.llm.shutil.which", return_value=executable),
     ):
         await _call_cli("the prompt", "model")
 
     args = mock_exec.call_args.args
     kwargs = mock_exec.call_args.kwargs
     # 1. Absolute path, not a bare name resolved through PATH.
-    assert args[0] == "/usr/local/bin/claude"
+    assert args[0] == executable
     assert Path(args[0]).is_absolute()
     # 2. List form: every argument passed positionally, never one joined string.
     assert all(isinstance(a, str) for a in args)

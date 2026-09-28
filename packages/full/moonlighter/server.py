@@ -93,13 +93,13 @@ async def scan_and_evaluate(
 ) -> str:
     """Scan job boards, evaluate with LLM, return new jobs above threshold.
 
-    By default scans only phase 1 (priority BR companies) to save tokens.
+    By default scans only phase1 from company_list.yaml to save tokens.
     Use phase='phase2', 'phase3', or 'all' to explicitly scan more companies.
 
     Args:
-        keywords: keywords for the LinkedIn scanner (optional)
-        phase: "phase1" (default/BR), "phase2" (remote-first global),
-               "phase3" (big techs), or "all" (everything)
+        keywords: optional search terms for sources supporting keyword searches
+        phase: "phase1" (default), "phase2", "phase3", or "all";
+               groups are defined by the user in company_list.yaml
     """
     app = ctx.request_context.lifespan_context
     with operation_metrics("scan_and_evaluate"):
@@ -155,7 +155,7 @@ async def add_job(
         url: job URL (required, used as unique identifier)
         company: company name (e.g. "ifood"). Optional for routed ATSes (Greenhouse,
             Recruitee); required otherwise.
-        title: job title (e.g. "Senior Software Engineer"). Optional for routed ATSes;
+        title: job title as stated in the posting. Optional for routed ATSes;
             required otherwise.
         description: job description text. If empty, tries to fetch it automatically.
     """

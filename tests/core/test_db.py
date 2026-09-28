@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+from pathlib import Path
 
 import pytest
 from moonlighter.core.db import AnswerBankEntry, Application, Job, ScanLog, init_db
@@ -393,7 +394,7 @@ def test_db_path_default_when_env_unset(monkeypatch):
 
     monkeypatch.delenv("MOONLIGHTER_DB_PATH", raising=False)
     monkeypatch.delenv("MOONLIGHTER_HOME", raising=False)
-    assert _db_path().endswith("/.moonlighter/moonlighter.db")
+    assert Path(_db_path()) == Path.home() / ".moonlighter" / "moonlighter.db"
 
 
 def test_db_path_respects_env(monkeypatch):

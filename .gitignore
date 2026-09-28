@@ -23,3 +23,8 @@ TODO.md
 .coverage.*
 htmlcov/
 coverage.xml
+
+# Local quality-tool caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

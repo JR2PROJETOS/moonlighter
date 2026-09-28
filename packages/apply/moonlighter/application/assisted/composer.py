@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 _CV_LABEL = re.compile(r"\bcv\b|resume|curr[ií]c", re.I)
 
 PROMPT = """Answer one question on a job application, as the candidate.
+Infer profession, professional background and seniority exclusively from the candidate
+profile sourced from profile.yaml. Do not assume a default profession or industry,
+or use the job posting as evidence of the candidate's qualifications.
 
 Candidate profile:
 {profile}
@@ -132,8 +135,8 @@ async def _generate(
         constraint = (
             f"Reply with {how_many}, copied verbatim:\n{options}\n"
             "Pick the strongest option the profile supports: when the profile states "
-            "the fact plainly (a language listed as fluent, a technology used in "
-            "production), do not choose a weaker option than the fact warrants."
+            "the fact plainly (a language listed as fluent, a skill demonstrated in "
+            "professional practice), do not choose a weaker option than the fact warrants."
         )
     prompt = PROMPT.format(
         # Least privilege at the prompt boundary: references (third-party

@@ -94,7 +94,9 @@ async def test_prepare_application_appends_the_uncompiled_cv_note(tmp_db, snapsh
         patch("moonlighter.application.assisted.service._tracking_alias", return_value=None),
     ):
         out = render_sheet_result(await prepare_application(job.id, CONFIG, PROFILE))
-    snapshot_text(out, "cv_note")
+    snapshot_text(
+        out.replace(str(uncompiled.path.parent), uncompiled.path.parent.as_posix()), "cv_note"
+    )
 
 
 async def test_prepare_application_appends_the_compiled_cv_note(tmp_db, snapshot_text):
@@ -114,7 +116,7 @@ async def test_prepare_application_appends_the_compiled_cv_note(tmp_db, snapshot
         patch("moonlighter.application.assisted.service._tracking_alias", return_value=None),
     ):
         out = render_sheet_result(await prepare_application(job.id, CONFIG, PROFILE))
-    snapshot_text(out, "compiled_cv_note")
+    snapshot_text(out.replace(str(compiled.path), compiled.path.as_posix()), "compiled_cv_note")
 
 
 async def test_prepare_application_job_not_found_is_unchanged(tmp_db, snapshot_text):
@@ -254,7 +256,7 @@ async def test_prepare_application_reports_the_cv_path_and_compiled_flag(tmp_db)
     ):
         result = await prepare_application(job.id, CONFIG, PROFILE)
     assert result.kind is SheetKind.SHEET
-    assert result.cv_path == "/tmp/cv-generated/9/cv.pdf"
+    assert result.cv_path == str(compiled.path)
     assert result.cv_compiled is True
 
 

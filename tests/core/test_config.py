@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -307,9 +308,12 @@ def test_harden_permissions_chmods_files_0600(tmp_path, monkeypatch):
     (tmp_path / "moonlighter.db").chmod(0o644)
     from moonlighter.core.config import harden_permissions
 
-    warnings = harden_permissions()
+    with patch.object(Path, "chmod", autospec=True, side_effect=Path.chmod) as chmod:
+        warnings = harden_permissions()
+    chmod.assert_called_once_with(tmp_path / "moonlighter.db", 0o600)
     assert warnings == []
-    assert oct((tmp_path / "moonlighter.db").stat().st_mode)[-3:] == "600"
+    if os.name == "posix":
+        assert oct((tmp_path / "moonlighter.db").stat().st_mode)[-3:] == "600"
 
 
 def test_harden_permissions_chmods_dirs_0700(tmp_path, monkeypatch):
@@ -318,8 +322,11 @@ def test_harden_permissions_chmods_dirs_0700(tmp_path, monkeypatch):
     (tmp_path / "browser-session").chmod(0o755)
     from moonlighter.core.config import harden_permissions
 
-    harden_permissions()
-    assert oct((tmp_path / "browser-session").stat().st_mode)[-3:] == "700"
+    with patch.object(Path, "chmod", autospec=True, side_effect=Path.chmod) as chmod:
+        harden_permissions()
+    chmod.assert_called_once_with(tmp_path / "browser-session", 0o700)
+    if os.name == "posix":
+        assert oct((tmp_path / "browser-session").stat().st_mode)[-3:] == "700"
 
 
 def test_harden_permissions_skips_missing_files(tmp_path, monkeypatch):
@@ -529,6 +536,7 @@ def test_resolve_under_home_leaves_an_absolute_path_untouched(monkeypatch, tmp_p
 def test_resolve_under_home_expands_a_tilde_path_without_touching_home(monkeypatch, tmp_path):
     monkeypatch.setenv("MOONLIGHTER_HOME", str(tmp_path / "not-this-one"))
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     assert resolve_under_home("~/creds.json") == tmp_path / "creds.json"
 
 

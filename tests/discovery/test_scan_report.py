@@ -302,3 +302,13 @@ def test_scan_report_stats_is_not_rendered(three_jobs, snapshot_text):
         stats={"greenhouse": SourceStats(companies=1, jobs=3, errors=0)},
     )
     snapshot_text(render_scan_report(report), "above_threshold")
+
+
+@pytest.fixture(autouse=True)
+def stable_console_for_snapshots(monkeypatch):
+    from functools import partial
+
+    from moonlighter import views
+    from rich.console import Console
+
+    monkeypatch.setattr(views, "Console", partial(Console, legacy_windows=False))

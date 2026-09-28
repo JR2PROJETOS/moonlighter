@@ -527,7 +527,7 @@ class RemotiveScanner(BaseScanner):
     flag is the control point; whoever enables this scanner is responsible
     for not scanning more than a few times a day."""
 
-    BASE = "https://remotive.com/api/remote-jobs?category=software-dev"
+    BASE = "https://remotive.com/api/remote-jobs"
 
     async def scan(self, company_slugs: list[str] | None = None, **kwargs: Any) -> list[RawJob]:
         stats: ScanStats | None = kwargs.get("stats")

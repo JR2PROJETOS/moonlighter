@@ -14,6 +14,7 @@ Coverage:
 import base64
 import datetime
 import json
+import os
 import re
 from pathlib import Path
 from typing import ClassVar
@@ -1207,13 +1208,18 @@ class TestSetupGmailService:
         mock_flow = MagicMock()
         mock_flow.run_local_server.return_value = mock_creds
 
-        with patch("moonlighter.tracking.gmail_client.InstalledAppFlow") as MockFlow:
+        with (
+            patch("moonlighter.tracking.gmail_client.InstalledAppFlow") as MockFlow,
+            patch.object(Path, "chmod", autospec=True, side_effect=Path.chmod) as chmod,
+        ):
             MockFlow.from_client_secrets_file.return_value = mock_flow
             _run_gmail_oauth(creds_path, token_path)
 
         written = Path(token_path)
         assert written.read_text() == '{"token": "abc"}'
-        assert written.stat().st_mode & 0o777 == 0o600
+        chmod.assert_called_once_with(written, 0o600)
+        if os.name == "posix":
+            assert written.stat().st_mode & 0o777 == 0o600
 
     def test_refreshes_expired_token(self, tmp_path, monkeypatch):
         from moonlighter.tracking.gmail_client import setup_gmail_service

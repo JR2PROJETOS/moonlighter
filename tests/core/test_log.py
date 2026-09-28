@@ -2,6 +2,24 @@ import logging
 from pathlib import Path
 
 
+def test_default_log_respects_isolated_home(tmp_path, monkeypatch):
+    from moonlighter.core import log as log_mod
+
+    monkeypatch.setenv("MOONLIGHTER_HOME", str(tmp_path))
+    monkeypatch.setattr(log_mod, "_initialized", False)
+    root = logging.getLogger("moonlighter")
+    saved = root.handlers[:]
+    root.handlers.clear()
+    try:
+        log_mod.setup()
+        handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
+        assert [h.baseFilename for h in handlers] == [str(tmp_path / "app.log")]
+    finally:
+        for handler in root.handlers:
+            handler.close()
+        root.handlers[:] = saved
+
+
 def test_get_logger_returns_logger_with_correct_name():
     from moonlighter.core.log import get_logger
 

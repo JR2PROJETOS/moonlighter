@@ -1,4 +1,5 @@
 import subprocess
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -209,11 +210,9 @@ def test_looks_like_a_compiled_pdf_rejects_an_unreadable_file(tmp_path):
     # every other way this file could be unusable — never propagate.
     pdf = tmp_path / "cv.pdf"
     pdf.write_bytes(b"%PDF-1.5\n...\n%%EOF\n")
-    pdf.chmod(0o000)
-    try:
+    # chmod(0) does not revoke read access on Windows or for a POSIX root user.
+    with patch.object(Path, "open", side_effect=PermissionError("unreadable")):
         assert looks_like_a_compiled_pdf(pdf) is False
-    finally:
-        pdf.chmod(0o644)  # restore so tmp_path cleanup can remove it
 
 
 def test_looks_like_a_compiled_pdf_finds_eof_even_in_a_large_file(tmp_path):

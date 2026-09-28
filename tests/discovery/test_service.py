@@ -566,11 +566,7 @@ async def test_scan_title_filtered_archives_with_score_zero(tmp_db):
     assert "filtered by title" in result.lower()
 
 
-async def test_scan_ineligible_location_archives_without_llm(tmp_db):
-    # Live 2026-08-20/21: "Bangalore, India" passed at 8.5 because the
-    # eligibility rule lived in the prompt and the LLM never saw the location
-    # field. Onsite/hybrid outside Belo Horizonte is impossible regardless of
-    # the JD — archived deterministically, no LLM call.
+async def test_onsite_location_reaches_evaluation_without_an_invented_home_city(tmp_db):
     init_db()
     raw = RawJob(
         source="greenhouse",
@@ -581,13 +577,12 @@ async def test_scan_ineligible_location_archives_without_llm(tmp_db):
         remote_type="onsite",
         description="A detailed job description that goes on.",
     )
-    boom = AsyncMock(side_effect=AssertionError("LLM must not run for ineligible locations"))
-    result = await _run_scan([raw], eval_mock=boom)
+    evaluator = AsyncMock(return_value=_eval(8.0))
+    await _run_scan([raw], eval_mock=evaluator)
     job = Job.get(Job.url == "https://x.com/scan/abroad")
-    assert job.status == "archived"
-    assert job.score == 0.0
-    assert "location ineligible" in job.score_notes
-    assert "location ineligible" in result.lower()
+    assert job.status == "new"
+    assert job.score == 8.0
+    evaluator.assert_awaited_once()
 
 
 async def test_scan_ambiguous_location_still_reaches_the_llm(tmp_db):
@@ -697,10 +692,9 @@ async def test_scan_title_filtered_integrity_error_skips_silently(tmp_db):
     assert "processed" in result and "No new jobs found" not in result
 
 
-async def test_scan_location_ineligible_integrity_error_skips_silently(tmp_db):
+async def test_onsite_duplicate_integrity_error_skips_silently(tmp_db):
     init_db()
-    # Ineligible location + pre-existing Job (no ScanLog) → the eligibility branch
-    # attempts Job.create archived, collides → IntegrityError → skipped (return None).
+    # An onsite posting is evaluated normally; an existing Job cannot be inserted twice.
     Job.create(source="x", company="x", title="x", url="https://x.com/scan/9", status="new")
     raw = RawJob(
         source="greenhouse",

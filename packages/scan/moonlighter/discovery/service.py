@@ -19,7 +19,6 @@ from moonlighter.core.plugins import discover_entry_points
 from moonlighter.core.posting import fetch_description, fetch_posting_via_ats
 from moonlighter.core.urls import normalize_job_url
 from moonlighter.discovery.archive import archive_stale_jobs as archive_stale_jobs
-from moonlighter.discovery.eligibility import Eligibility, classify_location
 from moonlighter.discovery.evaluator import (
     EvalInput,
     evaluate_job,
@@ -191,7 +190,7 @@ async def _scan_gupy(keywords: str, config: dict[str, Any], stats: ScanStats) ->
         return []
     from moonlighter.discovery.sources.http import GupyScanner
 
-    return await GupyScanner().scan(keywords=keywords or "software engineer", stats=stats)
+    return await GupyScanner().scan(keywords=keywords, stats=stats)
 
 
 def _matches_keywords(title: str, keywords: str) -> bool:
@@ -298,18 +297,6 @@ async def _evaluate_and_store(
                         raw,
                         score=0.0,
                         score_notes=f"title filtered: {matched!r}",
-                        caveats="[]",
-                        status="archived",
-                    )
-                    if job is not None:
-                        results.append(job)
-                elif classify_location(raw.location, raw.remote_type) is Eligibility.INELIGIBLE:
-                    # Onsite/hybrid outside Belo Horizonte: no JD wording can fix
-                    # that — archived without spending an LLM call (see eligibility.py).
-                    job = _persist(
-                        raw,
-                        score=0.0,
-                        score_notes=f"location ineligible: {raw.location!r}",
                         caveats="[]",
                         status="archived",
                     )

@@ -113,6 +113,7 @@ def test_tilde_in_cv_default_expands_like_the_tailored_cv_keys(monkeypatch, tmp_
     # Before: "~/cvs/x.pdf" became "<MOONLIGHTER_HOME>/~/cvs/x.pdf" while the
     # three cv.* keys next to it expanded "~". One convention for the block.
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     cv = tmp_path / "cvs" / "x.pdf"
     cv.parent.mkdir()
     cv.write_bytes(b"%PDF")

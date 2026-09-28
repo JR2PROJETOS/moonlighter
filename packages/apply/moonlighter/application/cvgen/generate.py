@@ -30,6 +30,11 @@ MAX_BULLETS: Final = 9
 MAX_OPEN_SOURCE: Final = 1
 
 _PREFIX = """You are tailoring a CV for one specific job posting.
+Infer profession, professional background and seniority exclusively from the candidate
+profile sourced from profile.yaml. Do not assume a default profession or industry.
+The pool and base template supply documented content and presentation, not a replacement
+professional identity. Do not infer qualifications from the job posting; missing profile
+facts remain unknown. Use USE_BASE only if the base CV is consistent with the profile.
 
 ## The candidate's profile
 {profile}
@@ -45,7 +50,7 @@ you never author a new factual claim — facts outside this pool and the profile
 ## The base CV's current summary
 {base_summary}
 
-## The base CV's current technical expertise
+## The base CV's current professional skills and expertise
 {base_expertise}
 
 ## Instructions
@@ -57,9 +62,9 @@ Otherwise answer (JSON only, no markdown):
   "language": "en" or "pt" (match the posting's language),
   "summary": "2-4 sentence professional summary tailored to the posting, built ONLY from the
               profile and summary guidance — never author or inflate a claim",
-  "technical_expertise": "one compact line like the base one, reordered for this posting",
+  "technical_expertise": "documented skills in the profile's profession, reordered for this posting",
   "bullets": ["ordered bullet ids from the pool — most relevant first per experience"],
-  "open_source": ["open-source ids worth a dedicated section for THIS posting, or []"],
+  "open_source": ["optional documented open-source contributions relevant to this posting; otherwise []"],
   "bullets_translated": {{"id": "faithful pt translation of that bullet's text"}}
                         (only when language is "pt"; translate, never rewrite)}}
 
@@ -86,7 +91,8 @@ def _prefix(pool: CVPool, profile: dict[str, Any], base_summary: str, base_exper
             pool_lines.append(f"  [{b.id}] ({', '.join(b.angles)}) {b.latex}")
         if exp.prose_id:
             pool_lines.append(f"  [{exp.prose_id}] (prose) {exp.prose}")
-    pool_lines.append("Open source:")
+    if pool.open_source:
+        pool_lines.append("Open source:")
     for b in pool.open_source:
         pool_lines.append(f"  [{b.id}] ({', '.join(b.angles)}) {b.latex}")
     return _PREFIX.format(

@@ -2,8 +2,9 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+from moonlighter.core.config import moonlighter_home
+
 _initialized = False
-_DEFAULT_LOG_PATH = str(Path("~/.moonlighter/app.log").expanduser())
 
 # Rich's DEFAULT_STYLES for these keys are plain, unbolded colors (blue/yellow/
 # green) that read as faint on a dark terminal. Bold + brighter variants make
@@ -94,7 +95,7 @@ def setup(log_path: str | None = None) -> None:
         return
     _initialized = True
 
-    resolved = log_path or _DEFAULT_LOG_PATH
+    resolved = log_path or str(moonlighter_home() / "app.log")
     Path(resolved).parent.mkdir(parents=True, exist_ok=True)
 
     root = logging.getLogger("moonlighter")
