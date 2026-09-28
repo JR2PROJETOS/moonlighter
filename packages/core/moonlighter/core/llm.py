@@ -188,10 +188,10 @@ def make_codex_caller(config: dict[str, Any]) -> LLMCaller:
                     )
                 output = Path(directory) / "final.txt"
                 code, stdout, stderr = await run(
-                    "--ignore-user-config",
                     "--ask-for-approval",
                     "never",
                     "exec",
+                    "--ignore-user-config",
                     "--sandbox",
                     "read-only",
                     "--ephemeral",
