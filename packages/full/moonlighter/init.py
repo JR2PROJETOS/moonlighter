@@ -7,7 +7,7 @@ single largest source of setup friction for a new user.
 from pathlib import Path
 
 import yaml
-from moonlighter.core.config import llm_backend
+from moonlighter.core.config import llm_backend, validate_codex_models
 
 # Common install locations, most-preferred first. Chromium-family only -- moonlighter drives a
 # real browser profile so the user's logged-in sessions are reusable.
@@ -37,7 +37,9 @@ def run_init(home: Path, answers: dict[str, str]) -> Path:
     """
     # Validate before touching the filesystem: a wizard that writes a config the
     # next boot rejects sends the user to fix a file it just walked them through.
-    llm_backend({"llm_backend": answers["llm_backend"]})
+    backend = llm_backend({"llm_backend": answers["llm_backend"]})
+    if backend == "codex":
+        validate_codex_models(answers)
 
     config_path = home / "config.yaml"
     if config_path.exists():
@@ -56,6 +58,14 @@ def run_init(home: Path, answers: dict[str, str]) -> Path:
             "not_authorized_answer": "No",
         },
     }
+    if backend == "codex":
+        config.update(
+            {
+                key: answers[key]
+                for key in ("llm_model", "eval_model", "codex_path")
+                if key in answers
+            }
+        )
     config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     config_path.chmod(0o600)
     return config_path
@@ -80,8 +90,13 @@ def main() -> None:  # pragma: no cover - interactive I/O boundary
     answers = {
         "browser_path": _ask("Browser executable path", detected or ""),
         "citizenship_country": _ask("Your citizenship country (for work authorization)"),
-        "llm_backend": _ask("LLM backend -- 'cli' (Claude Code) or 'api'", "cli"),
+        "llm_backend": _ask("LLM backend -- 'cli' (Claude Code), 'api', or 'codex'", "cli"),
     }
+
+    if answers["llm_backend"] == "codex":
+        answers["llm_model"] = _ask("Codex model (required)")
+        answers["eval_model"] = _ask("Evaluation model", answers["llm_model"])
+        answers["codex_path"] = _ask("Codex executable (empty uses PATH)")
 
     try:
         config_path = run_init(home, answers)

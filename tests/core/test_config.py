@@ -588,3 +588,31 @@ class TestAnswerBankMaxAge:
 
     def test_default_is_ninety_days(self):
         assert DEFAULTS["answer_bank_max_age_days"] == 90
+
+
+@pytest.mark.parametrize("model", [None, "", "   ", "claude-sonnet-4-6"])
+def test_codex_requires_explicit_non_claude_model(tmp_path, model):
+    path = tmp_path / "config.yaml"
+    data = {"llm_backend": "codex"}
+    if model is not None:
+        data["llm_model"] = model
+    path.write_text(yaml.safe_dump(data))
+    with pytest.raises(ConfigError, match="llm_model"):
+        load_config(path)
+
+
+@pytest.mark.parametrize("evaluation", [None, "evaluation-model"])
+def test_codex_model_defaults_and_path(tmp_path, evaluation):
+    data = {"llm_backend": "codex", "llm_model": "chosen-model", "codex_path": "custom"}
+    if evaluation is not None:
+        data["eval_model"] = evaluation
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(data))
+    config = load_config(path)
+    validate_config(config)
+    assert config["eval_model"] == (evaluation or "chosen-model")
+
+
+def test_codex_path_type():
+    with pytest.raises(ConfigError, match="codex_path"):
+        validate_config({"llm_backend": "codex", "llm_model": "chosen", "codex_path": 42})

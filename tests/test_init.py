@@ -86,3 +86,28 @@ def test_run_init_writes_a_config_that_loads_back(tmp_path, monkeypatch):
         },
     )
     assert load_config(path)["llm_backend"] == "cli"
+
+
+def test_init_codex_roundtrip(tmp_path, monkeypatch):
+    monkeypatch.setenv("MOONLIGHTER_HOME", str(tmp_path))
+    path = run_init(
+        tmp_path,
+        {
+            "browser_path": "",
+            "citizenship_country": "",
+            "llm_backend": "codex",
+            "llm_model": "chosen",
+            "codex_path": "custom.exe",
+        },
+    )
+    config = load_config(path)
+    assert config["llm_backend"] == "codex"
+    assert config["llm_model"] == config["eval_model"] == "chosen"
+    assert config["codex_path"] == "custom.exe"
+
+
+def test_init_codex_missing_model_does_not_write(tmp_path):
+    home = tmp_path / "new"
+    with pytest.raises(ConfigError, match="llm_model"):
+        run_init(home, {"browser_path": "", "citizenship_country": "", "llm_backend": "codex"})
+    assert not home.exists()

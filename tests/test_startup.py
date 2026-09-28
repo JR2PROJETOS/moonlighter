@@ -190,3 +190,23 @@ def test_validate_startup_returns_list_of_startup_warnings():
     result = validate_startup(config={}, profile={})
     assert isinstance(result, list)
     assert all(isinstance(w, StartupWarning) for w in result)
+
+
+@pytest.mark.parametrize("resolved", [None, "codex.exe"])
+def test_codex_startup_path_without_api_key(monkeypatch, resolved):
+    from moonlighter.startup import _check_llm_backend
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with patch("moonlighter.core.llm.shutil.which", return_value=resolved) as which:
+        warning = _check_llm_backend({"llm_backend": "codex", "llm_model": "chosen"})
+    which.assert_called_once_with("codex")
+    assert (warning is None) == (resolved is not None)
+
+
+def test_codex_explicit_invalid_path_has_no_path_fallback():
+    from moonlighter.startup import _check_llm_backend
+
+    with patch("moonlighter.core.llm.shutil.which", return_value=None) as which:
+        warning = _check_llm_backend({"llm_backend": "codex", "codex_path": "missing.exe"})
+    which.assert_called_once_with("missing.exe")
+    assert warning is not None and warning.level == "error"

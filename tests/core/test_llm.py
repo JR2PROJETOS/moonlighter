@@ -548,3 +548,116 @@ IS_SPEND_LIMIT_CASES = [
 )
 def test_is_spend_limit_table(exc: Exception, expected: bool) -> None:
     assert is_spend_limit(exc) is expected
+
+
+async def test_codex_final_file_stdin_model_and_metrics(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-reach-child")
+    processes = []
+    directories = []
+
+    async def spawn(*args, **kwargs):
+        proc = AsyncMock()
+        proc.returncode = 0
+        processes.append((args, kwargs, proc))
+        if "status" in args:
+            proc.communicate.return_value = (b"Logged in using ChatGPT", b"")
+        else:
+            output = Path(args[args.index("--output-last-message") + 1])
+            output.write_text("final response", encoding="utf-8")
+            directories.append(output.parent)
+            proc.communicate.return_value = (b"reasoning and logs", b"diagnostic")
+        return proc
+
+    with (
+        patch("moonlighter.core.llm.shutil.which", return_value="codex.exe") as which,
+        patch("moonlighter.core.llm.asyncio.create_subprocess_exec", side_effect=spawn),
+        patch("moonlighter.core.llm.record_call") as record,
+    ):
+        caller = make_caller({"llm_backend": "codex", "llm_model": "chosen"})
+        assert await caller("private prompt", "evaluation-model", "prefix") == "final response"
+    which.assert_called_with("codex")
+    args, kwargs, proc = processes[-1]
+    assert args[args.index("--model") + 1] == "evaluation-model"
+    assert args[args.index("--sandbox") + 1] == "read-only"
+    assert args[-1] == "-"
+    assert "private prompt" not in args
+    assert "OPENAI_API_KEY" not in kwargs["env"]
+    proc.communicate.assert_awaited_once_with(input=b"prefix\n\nprivate prompt")
+    assert all(not directory.exists() for directory in directories)
+    record.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "detail,limited",
+    [("usage_limit_reached", True), ("session_limit", True), ("session expired", False)],
+)
+async def test_codex_errors_preserve_limit_detection(detail, limited):
+    auth = AsyncMock(returncode=0)
+    auth.communicate.return_value = (b"Logged in using ChatGPT", b"")
+    proc = AsyncMock(returncode=1)
+    proc.communicate.return_value = (b"", detail.encode())
+    with patch("moonlighter.core.llm.asyncio.create_subprocess_exec", side_effect=[auth, proc]):
+        caller = make_caller({"llm_backend": "codex", "llm_model": "chosen"})
+        with pytest.raises(RuntimeError) as exc:
+            await caller("prompt", "chosen")
+    assert is_spend_limit(exc.value) is limited
+
+
+@pytest.mark.parametrize("status", [b"Logged in using an API key", b"Not logged in", b"unknown"])
+async def test_codex_rejects_non_chatgpt_auth(status):
+    proc = AsyncMock(returncode=0)
+    proc.communicate.return_value = (status, b"")
+    with patch("moonlighter.core.llm.asyncio.create_subprocess_exec", return_value=proc) as spawn:
+        caller = make_caller({"llm_backend": "codex", "llm_model": "chosen"})
+        with pytest.raises(RuntimeError, match="ChatGPT"):
+            await caller("prompt", "chosen")
+    assert spawn.call_count == 1
+
+
+async def test_codex_missing_final_does_not_return_stdout():
+    auth = AsyncMock(returncode=0)
+    auth.communicate.return_value = (b"Logged in using ChatGPT", b"")
+    proc = AsyncMock(returncode=0)
+    proc.communicate.return_value = (b"not the final answer", b"")
+    with patch("moonlighter.core.llm.asyncio.create_subprocess_exec", side_effect=[auth, proc]):
+        caller = make_caller({"llm_backend": "codex", "llm_model": "chosen"})
+        with pytest.raises(RuntimeError, match="final response"):
+            await caller("prompt", "chosen")
+
+
+@pytest.mark.parametrize("resolved", [None, "codex.cmd", "codex.ps1"])
+async def test_codex_invalid_executable_never_spawns(resolved):
+    with (
+        patch("moonlighter.core.llm.shutil.which", return_value=resolved) as which,
+        patch("moonlighter.core.llm.asyncio.create_subprocess_exec") as spawn,
+    ):
+        caller = make_caller(
+            {"llm_backend": "codex", "llm_model": "chosen", "codex_path": "custom.exe"}
+        )
+        with pytest.raises(RuntimeError):
+            await caller("prompt", "chosen")
+    which.assert_called_once_with("custom.exe")
+    spawn.assert_not_called()
+
+
+async def test_codex_rejects_claude_model_before_spawn():
+    with patch("moonlighter.core.llm.asyncio.create_subprocess_exec") as spawn:
+        caller = make_caller({"llm_backend": "codex", "llm_model": "chosen"})
+        with pytest.raises(ConfigError):
+            await caller("prompt", "claude-sonnet-4-6")
+    spawn.assert_not_called()
+
+
+async def test_codex_cancellation_reaps_process_and_records():
+    proc = MagicMock(returncode=None)
+    proc.communicate = AsyncMock(side_effect=[asyncio.CancelledError(), (b"", b"")])
+    with (
+        patch("moonlighter.core.llm.asyncio.create_subprocess_exec", return_value=proc),
+        patch("moonlighter.core.llm.record_call") as record,
+    ):
+        caller = make_caller({"llm_backend": "codex", "llm_model": "chosen"})
+        with pytest.raises(asyncio.CancelledError):
+            await caller("prompt", "chosen")
+    proc.kill.assert_called_once()
+    assert proc.communicate.await_count == 2
+    record.assert_called_once()

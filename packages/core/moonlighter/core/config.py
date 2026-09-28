@@ -134,6 +134,7 @@ _CONFIG_SCHEMA: dict[str, tuple[type, ...]] = {
     "llm_model": (str,),
     "eval_model": (str,),
     "llm_backend": (str,),
+    "codex_path": (str,),
     "title_blocklist": (list,),
     "cv": (dict,),
     "work_authorization": (dict,),
@@ -192,7 +193,7 @@ def _check_type(key: str, value: Any, types: tuple[type, ...]) -> None:
         )
 
 
-LLM_BACKENDS = ("cli", "api")
+LLM_BACKENDS = ("cli", "api", "codex")
 
 
 def llm_backend(config: dict[str, Any]) -> str:
@@ -211,6 +212,14 @@ def llm_backend(config: dict[str, Any]) -> str:
             f"config key 'llm_backend' must be one of {', '.join(LLM_BACKENDS)}, got {backend!r}"
         )
     return backend
+
+
+def validate_codex_models(config: dict[str, Any]) -> None:
+    """Codex must never inherit the Claude model defaults."""
+    for key in ("llm_model", "eval_model"):
+        value = config.get(key, config.get("llm_model"))
+        if not isinstance(value, str) or not value.strip() or value.lower().startswith("claude"):
+            raise ConfigError(f"Codex requires an explicit non-Claude {key}")
 
 
 def validate_config(config: dict[str, Any]) -> None:
@@ -237,6 +246,9 @@ def validate_config(config: dict[str, Any]) -> None:
                         f"config key 'email.lookback_days' must be positive, got {sub_value}"
                     )
 
+    if llm_backend(config) == "codex":
+        validate_codex_models(config)
+
 
 def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
     """
@@ -259,6 +271,7 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
         "browser_session_dir": str(home / "browser-session"),
         "screenshots_dir": str(home / "screenshots"),
     }
+    user: dict[str, Any] = {}
     if config_path.exists():
         user = yaml.safe_load(config_path.read_text()) or {}
         for key, value in user.items():
@@ -270,6 +283,9 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
                 config[key] = {**config[key], **value}
             else:
                 config[key] = value
+    if config.get("llm_backend") == "codex":
+        validate_codex_models(user)
+        config["eval_model"] = user.get("eval_model", user["llm_model"])
     for key in _PATH_KEYS:
         config[key] = str(Path(config[key]).expanduser())
 

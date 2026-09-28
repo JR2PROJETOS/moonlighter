@@ -3,12 +3,13 @@ import os
 import re
 import shutil
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Any, Protocol
 
 import anthropic
 from anthropic.types import TextBlock
-from moonlighter.core.config import llm_backend, moonlighter_home
+from moonlighter.core.config import llm_backend, moonlighter_home, validate_codex_models
 from moonlighter.core.metrics import record_call
 
 
@@ -55,6 +56,8 @@ def make_caller(config: dict[str, Any]) -> LLMCaller:
     """
     if llm_backend(config) == "cli":
         return _call_cli
+    if llm_backend(config) == "codex":
+        return make_codex_caller(config)
     return make_api_caller()
 
 
@@ -126,6 +129,105 @@ async def _call_cli(prompt: str, model: str, cache_prefix: str | None = None) ->
         return stdout.decode()
     finally:
         record_call(perf_counter() - start)
+
+
+def codex_executable(config: dict[str, Any]) -> str:
+    """Resolve an optional executable override without guessing installation paths."""
+    command = config.get("codex_path") or "codex"
+    executable = shutil.which(str(Path(command).expanduser()))
+    if executable is None:
+        raise RuntimeError("Codex executable not found; set codex_path or add codex to PATH")
+    if Path(executable).suffix.lower() in {".cmd", ".bat", ".ps1"}:
+        raise RuntimeError("Set codex_path to the native Codex executable, not a shell shim")
+    return executable
+
+
+def make_codex_caller(config: dict[str, Any]) -> LLMCaller:
+    """Use an existing ChatGPT login, without changing authentication state."""
+    validate_codex_models(config)
+
+    async def _call(prompt: str, model: str, cache_prefix: str | None = None) -> str:
+        validate_codex_models({"llm_model": model})
+        executable = codex_executable(config)
+        full = f"{cache_prefix}\n\n{prompt}" if cache_prefix is not None else prompt
+        env = {
+            k: v
+            for k, v in os.environ.items()
+            if k.upper() not in {"OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL"}
+        }
+        start = perf_counter()
+        try:
+            with TemporaryDirectory(prefix="moonlighter-codex-") as directory:
+
+                async def run(
+                    *args: str, data: bytes | None = None
+                ) -> tuple[int | None, bytes, bytes]:
+                    proc = await asyncio.create_subprocess_exec(
+                        executable,
+                        *args,
+                        stdin=asyncio.subprocess.PIPE,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        env=env,
+                        cwd=directory,
+                    )
+                    try:
+                        stdout, stderr = await proc.communicate(input=data)
+                    except asyncio.CancelledError:
+                        if proc.returncode is None:
+                            proc.kill()
+                        await proc.communicate()
+                        raise
+                    return proc.returncode, stdout, stderr
+
+                code, stdout, stderr = await run("login", "status")
+                status = (stdout + stderr).decode(errors="replace").lower()
+                if code != 0 or "logged in using chatgpt" not in status:
+                    raise RuntimeError(
+                        "Codex requires an existing ChatGPT login; check codex login status"
+                    )
+                output = Path(directory) / "final.txt"
+                code, stdout, stderr = await run(
+                    "--ignore-user-config",
+                    "--ask-for-approval",
+                    "never",
+                    "exec",
+                    "--sandbox",
+                    "read-only",
+                    "--ephemeral",
+                    "--skip-git-repo-check",
+                    "-c",
+                    'model_provider="openai"',
+                    "-c",
+                    "features.shell_tool=false",
+                    "-c",
+                    "features.unified_exec=false",
+                    "-c",
+                    'web_search="disabled"',
+                    "--model",
+                    model,
+                    "--output-last-message",
+                    str(output),
+                    "-",
+                    data=full.encode("utf-8"),
+                )
+                if code != 0:
+                    detail = (stderr + b"\n" + stdout).decode(errors="replace").strip()
+                    # Normalize structured error names before truncation, preserving the
+                    # existing quota detector without classifying expired auth as quota.
+                    limited = is_spend_limit(RuntimeError(detail.replace("_", " ")))
+                    prefix = "usage limit: " if limited else ""
+                    raise RuntimeError(f"Codex exited with code {code}: {prefix}{detail[:300]}")
+                if not output.is_file():
+                    raise RuntimeError("Codex did not write a final response")
+                final = output.read_text(encoding="utf-8")
+                if not final.strip():
+                    raise RuntimeError("Codex returned an empty final response")
+                return final
+        finally:
+            record_call(perf_counter() - start)
+
+    return _call
 
 
 def make_api_caller(max_tokens: int = 2048) -> LLMCaller:

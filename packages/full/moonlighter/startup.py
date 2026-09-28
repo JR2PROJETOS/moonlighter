@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from moonlighter.application.answers.cv import configured_cv_path
 from moonlighter.core.config import browser_executable, llm_backend, moonlighter_home
+from moonlighter.core.llm import codex_executable
 
 
 @dataclass
@@ -52,6 +53,12 @@ def _check_llm_backend(config: dict[str, Any]) -> StartupWarning | None:
     api arm left `llm_backend: cli` without an installed `claude` to fail per
     job, mid-scan, instead of once at startup.
     """
+    if llm_backend(config) == "codex":
+        try:
+            codex_executable(config)
+        except RuntimeError as exc:
+            return StartupWarning("error", str(exc))
+        return None
     if llm_backend(config) == "api":
         if os.environ.get("ANTHROPIC_API_KEY"):
             return None
